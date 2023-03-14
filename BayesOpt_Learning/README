@@ -5,3 +5,7 @@ Run Bayesian Optimization:
 
 Errors, Warnings:
 - <add any here>
+
+
+ToDo:
+- produce plots for each per-QPS bayesopt run (each plot should show all chosen itr-delay and dvfs pairs up to the optimal choice)
