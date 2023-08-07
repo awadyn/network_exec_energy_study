@@ -1,0 +1,11 @@
+Run Bayesian Optimization:
+--> choose a per-qps file of featurized logs (each row represents a full run with its joules and latency measurements)
+--> run: python3 simple_bayesopt.py featurized_logs_dir/<file> <N_trials>
+
+
+Errors, Warnings:
+- <add any here>
+
+
+ToDo:
+- produce plots for each per-QPS bayesopt run (each plot should show all chosen itr-delay and dvfs pairs up to the optimal choice)
