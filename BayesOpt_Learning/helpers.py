@@ -5,44 +5,96 @@ import pandas as pd
 import torch
 
 
-def init_df_simple(logs_file, non_norm_cols):
+def init_df_simple(logs_file):
 	df = pd.read_csv(logs_file, sep = ',')
 	itrs = []
 	dvfss = []
 	qpss = []
 	runs = []
 	cores = []	
-	# adding itr, dvfs, and qps columns to df
+	rapls = []
 	for i, v in df.iterrows():
 		f = v['fname']
 		run = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(1))
 		core = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(2))
 		itr = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(3))
 		dvfs = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(4), base=16)
+		rapl = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(5))
 		qps = int(re.search(r'linux\.mcd\.dmesg\.(.*?)_(.*?)_(.*?)_(.*?)_(.*?)_(.*?)\.csv', f).group(6))
 		itrs.append(itr)
 		dvfss.append(dvfs)
 		qpss.append(qps)
 		runs.append(run)
 		cores.append(core)
+		rapls.append(rapl)
 	df['itr'] = itrs
 	df['dvfs'] = dvfss
 	df['qps'] = qpss
 	df['run'] = runs
 	df['core'] = cores
+	df['rapl'] = rapls
 
-	if non_norm_cols != None:	
-		for col in df.drop(non_norm_cols, axis = 1).columns:
-			# normalizing relative to train set:
-			train_max = df[col].max()
-			train_min = df[col].min()
-			# sanity check
-			if (train_max - train_min == 0):
-				continue
-			df[col] = (df[col] - train_min) / (train_max - train_min)
-			test_df[col] = (test_df[col] - train_min) / (train_max - train_min)
+	# drop fname col
+	df = df.drop(['fname'], axis = 1)
 
-	return df
+	# drop rows with 99th percentile > 500
+	print('Dropping rows with read_99th latency > 500')
+	print(f'Before: {df.shape[0]}')
+	df = df[df['read_99th'] <= 500].copy()
+	print(f'After: {df.shape[0]}\n')
+
+	df_raw = df.copy()
+
+	# compute mean and standard deviation of different logs 
+	# (i.e. runs/core) with identical (itr, dvfs, rapl, qps) 
+	idx_cols = ['itr', 'dvfs', 'qps', 'rapl']
+
+	df_mean = df.groupby(idx_cols).mean()
+	df_std = df.groupby(idx_cols).std()
+	df_mean.columns = [f'{c}_mean' for c in df_mean.columns]
+	df_std.columns = [f'{c}_std' for c in df_std.columns]
+
+	df = pd.concat([df_mean, df_std], axis=1)
+	df.reset_index(inplace=True)
+
+	# find outliers
+	df.fillna(0, inplace=True)
+	df_highstd = df[df['joules_sum_std'] / df['joules_sum_mean'] > 0.03]
+
+	outlier_list = []
+	for idx, row in df_highstd.iterrows():
+		itr = row['itr']
+		dvfs = row['dvfs']
+		qps = row['qps']
+		rapl = row['rapl']
+		#df_bad = df_raw[(df_raw['itr'] == itr) & (df_raw['dvfs'] == dvfs) &(df_raw['qps'] == qps) &(df_raw['rapl'] == rapl)]
+		#bad_row = df_bad[df_bad['joules_sum'] == df_bad['joules_sum'].min()].iloc[0]
+		outlier_list.append((int(itr), int(dvfs), int(qps), int(rapl)))	
+
+	# filter out outliers
+	df_raw.set_index(idx_cols, inplace=True)
+	print('Dropping outlier rows')
+	print(f'Before: {df_raw.shape[0]}')
+	df_raw = df_raw.drop(outlier_list, axis=0)
+	print(f'After: {df_raw.shape[0]}\n')
+
+	# grouping rows of individual runs
+	print('Grouping rows of individual runs')
+	print(f'Before: {df_raw.shape[0]}')
+	df_mean = df_raw.groupby(idx_cols).mean()
+	df_std = df_raw.groupby(idx_cols).std()
+	df_mean.columns = [f'{c}_mean' for c in df_mean.columns]
+	df_std.columns = [f'{c}_std' for c in df_std.columns]
+
+	df = pd.concat([df_mean, df_std], axis=1)
+	df.reset_index(inplace=True)
+	print(f'After: {df.shape[0]}\n')
+	
+		
+	return df, df_raw, outlier_list
+
+
+
 
 
 
