@@ -51,8 +51,8 @@ def get_rdtsc(rdtsc_fname):
 
 
 # for every log file, log must be cleaned
-def prep_df(fname):
-	loc_rdtsc = 'linux_mcd_rdtsc_0_0x1d00_135_200k'
+def prep_df(fname, qps):
+	loc_rdtsc = 'linux_mcd_rdtsc_0_0x1d00_135_' + qps
 	tag = fname.split('.')[-1].split('_')
 	print(tag)
 	desc = '_'.join(np.delete(tag, [1]))
@@ -95,26 +95,27 @@ def get_latencies(out_fname):
 
 
 # parse single log file (1 core)
-def parse_log_file(fname):
-	loc_out = 'linux_mcd_out_0_0x1d00_135_200k/'
+def parse_log_file(fname, qps):
+	loc_out = 'linux_mcd_out_0_0x1d00_135_' + qps
 	tag = fname.split('.')[-1].split('_')
-	print(tag)
 	desc = '_'.join(np.delete(tag, [1]))
-	print(desc)
 	expno = tag[0]
 	out_fname = f'{loc_out}/linux.mcd.out.{desc}'
 	lat = get_latencies(out_fname)
-	df = prep_df(fname)
+	df = prep_df(fname, qps)
 	eig_vals = get_eigenvalues(df)
 	return desc, lat['read'], eig_vals
 
 def parse_all_logs(dirname):
+	print(dirname)
+	qps = dirname.split('_')[len(dirname.split('_')) - 1]
 	latencies = {}
 	eigenvals = {}
 	descriptors = {'desc': []}
 	for file in os.listdir(dirname):
 		print(dirname + file)
-		desc, lat, eig_vals = parse_log_file(dirname + file)
+		desc, lat, eig_vals = parse_log_file(dirname + file, qps)
+		print(desc)
 		descriptors['desc'].append(desc)
 		if (len(latencies.keys()) == 0) or (len(eigenvals.keys()) == 0):
 			latencies = {key: [] for key in lat.keys()}
