@@ -95,10 +95,8 @@ def get_latencies(out_fname):
 
 def get_energy(df):
 	energy = df['joules']
-	energy_sum = sum(energy)
-	energy_avg = np.average(energy)
-	energy_std = np.std(energy)
-	eng = {'joules_sum': energy_sum, 'joules_avg': energy_avg, 'joules_std': energy_std}
+	energy_sum = energy.iat[-1] - energy.iat[0]
+	eng = {'joules_sum': energy_sum}
 	return eng
 
 # parse single log file (1 core)
