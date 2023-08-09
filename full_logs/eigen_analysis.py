@@ -114,7 +114,7 @@ def parse_log_file(fname, qps, target):
 	else:
 		if target == "energy":
 			ret = get_energy(df)
-			df.drop('joules', axis=1)
+			#df.drop('joules', axis=1)
 	eig_vals = get_eigenvalues(df)
 	return desc, ret, eig_vals
 
