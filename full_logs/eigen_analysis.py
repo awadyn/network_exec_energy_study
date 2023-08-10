@@ -51,8 +51,8 @@ def get_rdtsc(rdtsc_fname):
 
 
 # for every log file, log must be cleaned
-def prep_df(fname, qps):
-	loc_rdtsc = 'linux_mcd_rdtsc_0_0x1d00_135_' + qps
+def prep_df(fname, qps, dvfs):
+	loc_rdtsc = 'linux_mcd_rdtsc_0_' + dvfs + '_135_' + qps
 	tag = fname.split('.')[-1].split('_')
 	print(tag)
 	desc = '_'.join(np.delete(tag, [1]))
@@ -100,12 +100,12 @@ def get_energy(df):
 	return eng
 
 # parse single log file (1 core)
-def parse_log_file(fname, qps, target):
-	loc_out = 'linux_mcd_out_0_0x1d00_135_' + qps
+def parse_log_file(fname, qps, dvfs, target):
+	loc_out = 'linux_mcd_out_0_' + dvfs + '_135_' + qps
 	tag = fname.split('.')[-1].split('_')
 	desc = '_'.join(np.delete(tag, [1]))
 	expno = tag[0]
-	df = prep_df(fname, qps)
+	df = prep_df(fname, qps, dvfs)
 	if target == "latency":
 		out_fname = f'{loc_out}/linux.mcd.out.{desc}'
 		ret = get_latencies(out_fname)
@@ -116,15 +116,17 @@ def parse_log_file(fname, qps, target):
 	eig_vals = get_eigenvalues(df)
 	return desc, ret, eig_vals
 
-def parse_all_logs(dirname):
+def parse_all_logs(dirname, target_reward):
 	print(dirname)
-	qps = dirname.split('_')[len(dirname.split('_')) - 1]
+	qps = dirname.split('_')[len(dirname.split('_')) - 1][:-1]
+	dvfs = dirname.split('_')[4]
+	print(dvfs)
 	targets = {}
 	eigenvals = {}
 	descriptors = {'desc': []}
 	for file in os.listdir(dirname):
 		print(dirname + file)
-		desc, target, eig_vals = parse_log_file(dirname + file, qps, target="energy")
+		desc, target, eig_vals = parse_log_file(dirname + file, qps, dvfs, target_reward)
 		print(target)
 		print(desc)
 		descriptors['desc'].append(desc)
@@ -137,6 +139,8 @@ def parse_all_logs(dirname):
 			eigenvals[key].append(eig_vals[key])
 	target_eig = {**descriptors, **targets, **eigenvals}
 	df = pd.DataFrame.from_dict(target_eig).set_index('desc')
+	outfile = '../' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
+	df.to_csv(outfile)
 	return df
 
 
