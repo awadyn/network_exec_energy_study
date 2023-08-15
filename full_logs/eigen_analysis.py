@@ -46,7 +46,6 @@ LINUX_COLS = ['i',
               'timestamp']
 
 def get_rdtsc(rdtsc_fname):
-	#df = pd.read_csv(rdtsc_fname, header=None, sep=' ')
 	frdtsc = open(rdtsc_fname)
 	START_RDTSC = 0
 	END_RDTSC = 0
@@ -61,10 +60,6 @@ def get_rdtsc(rdtsc_fname):
 	frdtsc.close()
 	tdiff = round(float((END_RDTSC - START_RDTSC) * TIME_CONVERSION_khz), 2)
 	print(START_RDTSC, END_RDTSC, tdiff)
-	#df[2] = df[2].astype(int)
-	#df[3] = df[3].astype(int)
-	#START_RDTSC = df[2].max()
-	#END_RDTSC = df[3].min()
 	return START_RDTSC, END_RDTSC
 
 
@@ -80,6 +75,7 @@ def prep_df(fname, qps, dvfs):
 
 	df = pd.read_csv(fname, sep=" ", skiprows=1, index_col=0, names=LINUX_COLS)
 	df = df[(df['timestamp'] >= START_RDTSC) & (df['timestamp'] <= END_RDTSC)]
+	# TODO: fix this computation; do not ignore overflow readings
 	df = df[(df['joules']>0) & (df['instructions'] > 0) & (df['cycles'] > 0) & (df['ref_cycles'] > 0) & (df['llc_miss'] > 0)].copy()
 	df['timestamp'] = df['timestamp'] - df['timestamp'].min()
 	df['timestamp'] = df['timestamp'] * TIME_CONVERSION_khz
