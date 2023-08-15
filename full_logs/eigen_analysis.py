@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 import numpy as np
 from numpy.linalg import eig
@@ -8,6 +9,9 @@ import matplotlib.pyplot as plt
 # input: logs directory for const OS/APP/QPS
 # for each log, find corr matrix eigenvalues + latency percentiles + total joules count
 # output: dataframe indexed by log ID with latency, total joules count, and correlation matrix eigenvalues
+
+TIME_CONVERSION_khz = 1./(2899999*1000)
+JOULE_CONVERSION = 0.00001526
 
 EBBRT_COLS = ['i',
 	'rx_desc',
@@ -42,11 +46,25 @@ LINUX_COLS = ['i',
               'timestamp']
 
 def get_rdtsc(rdtsc_fname):
-	df = pd.read_csv(rdtsc_fname, header=None, sep=' ')
-	df[2] = df[2].astype(int)
-	df[3] = df[3].astype(int)
-	START_RDTSC = df[2].max()
-	END_RDTSC = df[3].min()
+	#df = pd.read_csv(rdtsc_fname, header=None, sep=' ')
+	frdtsc = open(rdtsc_fname)
+	START_RDTSC = 0
+	END_RDTSC = 0
+	for line in frdtsc:
+		tmp = line.strip().split(' ')
+		if int(tmp[2]) > START_RDTSC:
+			START_RDTSC = int(tmp[2])
+		if END_RDTSC == 0:
+			END_RDTSC = int(tmp[3])
+		elif END_RDTSC < int(tmp[3]):
+			END_RDTSC = int(tmp[3])
+	frdtsc.close()
+	tdiff = round(float((END_RDTSC - START_RDTSC) * TIME_CONVERSION_khz), 2)
+	print(START_RDTSC, END_RDTSC, tdiff)
+	#df[2] = df[2].astype(int)
+	#df[3] = df[3].astype(int)
+	#START_RDTSC = df[2].max()
+	#END_RDTSC = df[3].min()
 	return START_RDTSC, END_RDTSC
 
 
@@ -54,25 +72,27 @@ def get_rdtsc(rdtsc_fname):
 def prep_df(fname, qps, dvfs):
 	loc_rdtsc = 'linux_mcd_rdtsc_0_' + dvfs + '_135_' + qps
 	tag = fname.split('.')[-1].split('_')
-	print(tag)
 	desc = '_'.join(np.delete(tag, [1]))
 	print(desc)
+
 	rdtsc_fname = f'{loc_rdtsc}/linux.mcd.rdtsc.{desc}'
-	print(rdtsc_fname)
 	START_RDTSC, END_RDTSC = get_rdtsc(rdtsc_fname)
 
-	TIME_CONVERSION_khz = 1./(2899999*1000)
-	JOULE_CONVERSION = 0.00001526
 	df = pd.read_csv(fname, sep=" ", skiprows=1, index_col=0, names=LINUX_COLS)
 	df = df[(df['timestamp'] >= START_RDTSC) & (df['timestamp'] <= END_RDTSC)]
 	df = df[(df['joules']>0) & (df['instructions'] > 0) & (df['cycles'] > 0) & (df['ref_cycles'] > 0) & (df['llc_miss'] > 0)].copy()
 	df['timestamp'] = df['timestamp'] - df['timestamp'].min()
 	df['timestamp'] = df['timestamp'] * TIME_CONVERSION_khz
 	df['joules'] = df['joules'] * JOULE_CONVERSION
+
+	tmp_joules = df[['joules']].diff()
+	tmp_joules.columns = [f'{c}_diff' for c in tmp_joules.columns]
+	df = pd.concat([df, tmp_joules], axis=1)
+	df.dropna(inplace=True)
+	df = df[df['joules_diff'] > 0]
 	return df
 
 
-# per log file
 def get_eigenvalues(df):
 	df_corr = df.drop('c6', axis=1).corr()	
 	vals, vecs = eig(df_corr)
@@ -83,7 +103,6 @@ def get_eigenvalues(df):
 		i += 1
 	return eigenvals
 
-# per log file
 def get_latencies(out_fname):
 	with open(out_fname, 'r') as f:
 		lines = f.readlines()
@@ -94,8 +113,7 @@ def get_latencies(out_fname):
 	return lat['read']
 
 def get_energy(df):
-	energy = df['joules']
-	energy_sum = energy.iat[-1] - energy.iat[0]
+	energy_sum = df['joules_diff'].sum()
 	eng = {'joules_sum': energy_sum}
 	return eng
 
@@ -112,15 +130,13 @@ def parse_log_file(fname, qps, dvfs, target):
 	else:
 		if target == "energy":
 			ret = get_energy(df)
-			#df.drop('joules', axis=1)
+			df.drop('joules', axis=1)
 	eig_vals = get_eigenvalues(df)
 	return desc, ret, eig_vals
 
 def parse_all_logs(dirname, target_reward):
-	print(dirname)
 	qps = dirname.split('_')[len(dirname.split('_')) - 1][:-1]
 	dvfs = dirname.split('_')[4]
-	print(dvfs)
 	targets = {}
 	eigenvals = {}
 	descriptors = {'desc': []}
@@ -137,12 +153,12 @@ def parse_all_logs(dirname, target_reward):
 			targets[key].append(target[key])
 		for key in eigenvals.keys():
 			eigenvals[key].append(eig_vals[key])
+		#break
 	target_eig = {**descriptors, **targets, **eigenvals}
 	df = pd.DataFrame.from_dict(target_eig).set_index('desc')
 	outfile = '../' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
 	df.to_csv(outfile)
 	return df
-
 
 
 
