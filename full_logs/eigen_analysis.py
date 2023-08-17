@@ -2,13 +2,13 @@ import os
 import sys
 import pandas as pd
 import numpy as np
-from numpy.linalg import eig
+from numpy.linalg import eig, eigvalsh
 import scipy
 import matplotlib.pyplot as plt
 
 # input: logs directory for const OS/APP/QPS
 # for each log, find corr matrix eigenvalues + latency percentiles + total joules count
-# output: dataframe indexed by log ID with latency, total joules count, and correlation matrix eigenvalues
+# output: dataframe indexed by log ID with latency or total joules count, and correlation matrix eigenvalues
 
 TIME_CONVERSION_khz = 1./(2899999*1000)
 JOULE_CONVERSION = 0.00001526
@@ -59,45 +59,19 @@ def get_rdtsc(rdtsc_fname):
 			END_RDTSC = int(tmp[3])
 	frdtsc.close()
 	tdiff = round(float((END_RDTSC - START_RDTSC) * TIME_CONVERSION_khz), 2)
-	print(START_RDTSC, END_RDTSC, tdiff)
 	return START_RDTSC, END_RDTSC
 
-
-# for every log file, log must be cleaned
-def prep_df(fname, qps, dvfs):
-	loc_rdtsc = 'linux_mcd_rdtsc_0_' + dvfs + '_135_' + qps
-	tag = fname.split('.')[-1].split('_')
-	desc = '_'.join(np.delete(tag, [1]))
-	print(desc)
-
-	rdtsc_fname = f'{loc_rdtsc}/linux.mcd.rdtsc.{desc}'
-	START_RDTSC, END_RDTSC = get_rdtsc(rdtsc_fname)
-
-	df = pd.read_csv(fname, sep=" ", skiprows=1, index_col=0, names=LINUX_COLS)
-	df = df[(df['timestamp'] >= START_RDTSC) & (df['timestamp'] <= END_RDTSC)]
-	# TODO: fix this computation; do not ignore overflow readings
-	df = df[(df['joules']>0) & (df['instructions'] > 0) & (df['cycles'] > 0) & (df['ref_cycles'] > 0) & (df['llc_miss'] > 0)].copy()
-	df['timestamp'] = df['timestamp'] - df['timestamp'].min()
-	df['timestamp'] = df['timestamp'] * TIME_CONVERSION_khz
-	df['joules'] = df['joules'] * JOULE_CONVERSION
-
-	tmp_joules = df[['joules']].diff()
-	tmp_joules.columns = [f'{c}_diff' for c in tmp_joules.columns]
-	df = pd.concat([df, tmp_joules], axis=1)
-	df.dropna(inplace=True)
-	df = df[df['joules_diff'] > 0]
-	return df
-
-
-def get_eigenvalues(df):
-	df_corr = df.drop('c6', axis=1).corr()	
-	vals, vecs = eig(df_corr)
+def get_eigenvalues(df, eigenval_counter = 0):
+	df_corr = df.corr()	
 	eigenvals = {}
-	i = 0
+	vals, vecs = eig(df_corr)
+#	vals = eigvalsh(df_corr)
 	for val in vals:
-		eigenvals['eig_'+str(i)] = val
-		i += 1
-	return eigenvals
+		if val <= 0:
+			print('NEGATIVE EIGENVALUE ', 'eig_' + str(eigenval_counter), val)
+		eigenvals['eig_'+str(eigenval_counter)] = val
+		eigenval_counter += 1
+	return eigenvals, eigenval_counter
 
 def get_latencies(out_fname):
 	with open(out_fname, 'r') as f:
@@ -113,23 +87,129 @@ def get_energy(df):
 	eng = {'joules_sum': energy_sum}
 	return eng
 
-# parse single log file (1 core)
-def parse_log_file(fname, qps, dvfs, target):
-	loc_out = 'linux_mcd_out_0_' + dvfs + '_135_' + qps
+
+# for every log file, log must be cleaned
+def prep_df(fname, qps, dvfs):
+#	fname = 'linux_mcd_dmesg_0_0xd00_135_200k/linux.mcd.dmesg.0_6_10_0xd00_135_200000'
+	print(fname)
+
+	# rdtsc files not tagged by core number
 	tag = fname.split('.')[-1].split('_')
 	desc = '_'.join(np.delete(tag, [1]))
+	loc_rdtsc = 'linux_mcd_rdtsc_0_' + dvfs + '_135_' + qps
+	rdtsc_fname = f'{loc_rdtsc}/linux.mcd.rdtsc.{desc}'
+	START_RDTSC, END_RDTSC = get_rdtsc(rdtsc_fname)
+ 
+	df = pd.read_csv(fname, sep=" ", skiprows=1, index_col=0, names=LINUX_COLS)
+	df = df[(df['timestamp'] >= START_RDTSC) & (df['timestamp'] <= END_RDTSC)]
+	df['timestamp'] = df['timestamp'] - df['timestamp'].min()
+	df['timestamp'] = df['timestamp'] * TIME_CONVERSION_khz
+	df['joules'] = df['joules'] * JOULE_CONVERSION
+
+	df = df.drop(['c6', 'c1', 'c1e', 'c3', 'c7'], axis=1)
+	# TODO remove, should not passively delete weird rows
+	df.dropna(inplace=True)
+	print('Full Log df:', df)
+
+	# NOTE this should never be the case
+	df_neg = df[(df['joules'] < 0) | (df['instructions'] < 0) | (df['cycles'] < 0) | (df['ref_cycles'] < 0) | (df['llc_miss'] < 0)].copy()
+	if df_neg.shape[0] > 0:
+		print("UNEXPECTED NEGATIVE VAL IN ", fname)
+
+	# non-continuous counter metrics: rx-bytes/desc, tx-bytes/desc
+	df_no_diffs = df[['rx_bytes' , 'rx_desc', 'tx_bytes', 'tx_desc']]
+	print('df_no_diffs: ', df_no_diffs)
+
+	# continuous counter metrics: joules, inst, cycles, etc.
+#	df_diffs = df[['instructions', 'cycles', 'ref_cycles', 'llc_miss', 'joules', 'c1', 'c1e', 'c3', 'c7', 'timestamp']].diff()
+	df_diffs = df[['instructions', 'cycles', 'ref_cycles', 'llc_miss', 'joules', 'timestamp']].copy()
+	df_diffs.columns = [f'{c}_diff' for c in df_diffs.columns]
+	print(df_diffs)
+	df_diffs = df_diffs[(df_diffs['joules_diff']>0) & (df_diffs['instructions_diff'] > 0) & (df_diffs['cycles_diff'] > 0) & (df_diffs['ref_cycles_diff'] > 0) & (df_diffs['llc_miss_diff'] > 0)].copy()
+	print(df_diffs)
+	# computing diffs
+	tmp = df_diffs.copy()
+	first_row = True
+	for col in df_diffs.columns:
+		first_row = True
+		prev_val = 0
+#		for i,j in df_diffs.iterrows():
+#			if first_row:
+#				first_row = False
+#				continue
+#			cur = int(df_diffs.loc[i][col])
+#			prev = int(df_diffs.shift(1).loc[i][col])
+#			if cur >= prev:
+#				tmp.loc[i, [col]] = cur - prev
+#			else:
+#				tmp.loc[i, [col]] = sys.maxsize - prev + cur
+#		for i, j in df_diffs.iterrows():
+#			tmp.loc[i, [col]] = 0
+#			break
+
+	for i,j in df_diffs.iterrows():
+		if first_row:
+			first_row = False
+			continue
+		for col in df_diffs.columns:
+			cur = int(df_diffs.loc[i][col])
+			prev = int(df_diffs.shift(1).loc[i][col])
+			if cur >= prev:
+				tmp.loc[i, [col]] = cur - prev
+			else:
+				tmp.loc[i, [col]] = sys.maxsize - prev + cur
+	for i, j in df_diffs.iterrows():
+		for col in df_diffs.columns:
+			tmp.loc[i, [col]] = 0
+		break
+	df_diffs = tmp.copy()
+	print('df_diffs: ', df_diffs)
+
+	# SCHEME 1
+	return df_no_diffs, df_diffs
+	# SCHEME 2
+	#df_full = pd.concat([df, df_diffs], axis=1)
+	#df_full.dropna(inplace=True)
+	#return df_full
+
+
+# parse single log file (1 core)
+def parse_log_file(fname, qps, dvfs, target):
+	tag = fname.split('.')[-1].split('_')
+	# maintaining core number in desc
+	desc = '_'.join(tag)
 	expno = tag[0]
-	df = prep_df(fname, qps, dvfs)
+
+	# SCHEME 1
+	df_no_diffs, df_diffs = prep_df(fname, qps, dvfs)
+
+	# GET TARGET
 	if target == "latency":
+		desc = '_'.join(np.delete(tag, [1]))
+		loc_out = 'linux_mcd_out_0_' + dvfs + '_135_' + qps
 		out_fname = f'{loc_out}/linux.mcd.out.{desc}'
 		ret = get_latencies(out_fname)
 	else:
 		if target == "energy":
-			ret = get_energy(df)
-			df.drop('joules', axis=1)
-	eig_vals = get_eigenvalues(df)
-	return desc, ret, eig_vals
+			ret = get_energy(df_diffs)
+			# ensure energy values do not leak into correlation matrices
+			df_diffs.drop('joules_diff', axis=1)
 
+	# GET EIGENVALS
+	# SCHEME 1
+	eigenval_counter = 0
+	eigenvals, eigenval_counter = get_eigenvalues(df_no_diffs, eigenval_counter)
+	eigenvals_diffs, eigenval_counter = get_eigenvalues(df_diffs, eigenval_counter)
+	all_eigenvals = {**eigenvals, **eigenvals_diffs}
+	# SCHEME 2
+#	df = prep_df(fname, qps, dvfs)
+#	eigenvals = get_eigenvalues(df)
+
+	return desc, ret, all_eigenvals, df_no_diffs, df_diffs
+
+
+# each directory represents logs with const qps, dvfs, rapl, and run number
+# itr-delay values and core numbers vary within a directory
 def parse_all_logs(dirname, target_reward):
 	qps = dirname.split('_')[len(dirname.split('_')) - 1][:-1]
 	dvfs = dirname.split('_')[4]
@@ -137,10 +217,8 @@ def parse_all_logs(dirname, target_reward):
 	eigenvals = {}
 	descriptors = {'desc': []}
 	for file in os.listdir(dirname):
-		print(dirname + file)
-		desc, target, eig_vals = parse_log_file(dirname + file, qps, dvfs, target_reward)
-		print(target)
-		print(desc)
+		desc, target, eig_vals, df_no_diffs, df_diffs = parse_log_file(dirname + file, qps, dvfs, target_reward)
+		print(desc, target, eig_vals)
 		descriptors['desc'].append(desc)
 		if (len(targets.keys()) == 0) or (len(eigenvals.keys()) == 0):
 			targets = {key: [] for key in target.keys()}
@@ -149,12 +227,12 @@ def parse_all_logs(dirname, target_reward):
 			targets[key].append(target[key])
 		for key in eigenvals.keys():
 			eigenvals[key].append(eig_vals[key])
-		#break
+#		break
 	target_eig = {**descriptors, **targets, **eigenvals}
 	df = pd.DataFrame.from_dict(target_eig).set_index('desc')
-	outfile = '../' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
+	outfile = '../new_' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
 	df.to_csv(outfile)
-	return df
+	return df, df_no_diffs, df_diffs
 
 
 
