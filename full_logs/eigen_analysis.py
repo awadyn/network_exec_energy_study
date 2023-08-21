@@ -88,6 +88,10 @@ def get_energy(df):
 	return eng
 
 
+def plot_histogram(df_diffs):
+	return
+
+
 # for every log file, log must be cleaned
 def prep_df(fname, qps, dvfs):
 #	fname = 'linux_mcd_dmesg_0_0xd00_135_200k/linux.mcd.dmesg.0_6_10_0xd00_135_200000'
@@ -184,6 +188,9 @@ def parse_log_file(fname, qps, dvfs, target):
 
 	# SCHEME 1
 	df_no_diffs, df_diffs = prep_df(fname, qps, dvfs)
+
+	plot_histogram(df_diffs)
+
 	# SCHEME 2
 #	df = prep_df(fname, qps, dvfs)
 
@@ -208,6 +215,7 @@ def parse_log_file(fname, qps, dvfs, target):
 	# SCHEME 2
 #	df = prep_df(fname, qps, dvfs)
 #	eigenvals = get_eigenvalues(df)
+#	return desc, ret, all_eigenvals, df
 
 	return desc, ret, all_eigenvals, df_no_diffs, df_diffs
 
