@@ -109,7 +109,6 @@ def prep_df(fname, qps, dvfs):
 	df = df.drop(['c6', 'c1', 'c1e', 'c3', 'c7'], axis=1)
 	# TODO remove, should not passively delete weird rows
 	df.dropna(inplace=True)
-	print('Full Log df:', df)
 
 	# NOTE this should never be the case
 	df_neg = df[(df['joules'] < 0) | (df['instructions'] < 0) | (df['cycles'] < 0) | (df['ref_cycles'] < 0) | (df['llc_miss'] < 0)].copy()
@@ -118,52 +117,55 @@ def prep_df(fname, qps, dvfs):
 
 	# non-continuous counter metrics: rx-bytes/desc, tx-bytes/desc
 	df_no_diffs = df[['rx_bytes' , 'rx_desc', 'tx_bytes', 'tx_desc']]
-	print('df_no_diffs: ', df_no_diffs)
 
 	# continuous counter metrics: joules, inst, cycles, etc.
-#	df_diffs = df[['instructions', 'cycles', 'ref_cycles', 'llc_miss', 'joules', 'c1', 'c1e', 'c3', 'c7', 'timestamp']].diff()
 	df_diffs = df[['instructions', 'cycles', 'ref_cycles', 'llc_miss', 'joules', 'timestamp']].copy()
 	df_diffs.columns = [f'{c}_diff' for c in df_diffs.columns]
-	print(df_diffs)
 	df_diffs = df_diffs[(df_diffs['joules_diff']>0) & (df_diffs['instructions_diff'] > 0) & (df_diffs['cycles_diff'] > 0) & (df_diffs['ref_cycles_diff'] > 0) & (df_diffs['llc_miss_diff'] > 0)].copy()
-	print(df_diffs)
+
 	# computing diffs
-	tmp = df_diffs.copy()
-	first_row = True
-	for col in df_diffs.columns:
-		first_row = True
-		prev_val = 0
-#		for i,j in df_diffs.iterrows():
-#			if first_row:
-#				first_row = False
-#				continue
+#	df_diffs = df_diffs.diff()
+	tmp = df_diffs.diff().copy()
+	df_diffs_neg = tmp[(tmp['joules_diff'] < 0) | (tmp['instructions_diff'] < 0) | (tmp['cycles_diff'] < 0) | (tmp['ref_cycles_diff'] < 0) | (tmp['llc_miss_diff'] < 0)]
+	if df_diffs_neg.shape[0] > 0:
+		print('NEGATIVE DIFFS IN FILE ', fname)
+		print(df_diffs_neg)
+		for i,j in df_diffs_neg.iterrows():
+			prev = df_diffs.shift(1).loc[i]
+			cur = df_diffs.loc[i]
+			print('previous row: ', list(prev))
+			print('current row: ', list(cur))
+			if (tmp.loc[i]['joules_diff'] < 0) & (tmp.loc[i]['timestamp_diff'] >= 0.001):
+				print('NEGATIVE JOULES DIFFS AT ', i)
+				tmp.loc[i, ['joules_diff']] = (2**32 - 1) * JOULE_CONVERSION - prev + cur 
+			print('new joules diff: ', tmp.loc[i]['joules_diff'])
+	df_diffs = tmp.copy()	
+
+	df_diffs = df_diffs[(df_diffs['joules_diff'] >= 0) & (df_diffs['instructions_diff'] >= 0) & (df_diffs['cycles_diff'] >= 0) & (df_diffs['ref_cycles_diff'] >= 0) & (df_diffs['llc_miss_diff'] >= 0)]
+
+	# slow for loop for diffs
+#	tmp = df_diffs.copy()
+#	first_row = True
+#	for i,j in tmp.iterrows():
+#		if first_row:
+#			first_row = False
+#			continue
+#		for col in df_diffs.columns:
 #			cur = int(df_diffs.loc[i][col])
 #			prev = int(df_diffs.shift(1).loc[i][col])
 #			if cur >= prev:
 #				tmp.loc[i, [col]] = cur - prev
 #			else:
 #				tmp.loc[i, [col]] = sys.maxsize - prev + cur
-#		for i, j in df_diffs.iterrows():
+#				if col == 'joules_diff':
+#					print(prev)
+#					print(cur)
+#					print(tmp.loc[i, [col]])
+#	for i, j in df_diffs.iterrows():
+#		for col in df_diffs.columns:
 #			tmp.loc[i, [col]] = 0
-#			break
-
-	for i,j in df_diffs.iterrows():
-		if first_row:
-			first_row = False
-			continue
-		for col in df_diffs.columns:
-			cur = int(df_diffs.loc[i][col])
-			prev = int(df_diffs.shift(1).loc[i][col])
-			if cur >= prev:
-				tmp.loc[i, [col]] = cur - prev
-			else:
-				tmp.loc[i, [col]] = sys.maxsize - prev + cur
-	for i, j in df_diffs.iterrows():
-		for col in df_diffs.columns:
-			tmp.loc[i, [col]] = 0
-		break
-	df_diffs = tmp.copy()
-	print('df_diffs: ', df_diffs)
+#		break
+#	df_diffs = tmp.copy()
 
 	# SCHEME 1
 	return df_no_diffs, df_diffs
@@ -182,6 +184,8 @@ def parse_log_file(fname, qps, dvfs, target):
 
 	# SCHEME 1
 	df_no_diffs, df_diffs = prep_df(fname, qps, dvfs)
+	# SCHEME 2
+#	df = prep_df(fname, qps, dvfs)
 
 	# GET TARGET
 	if target == "latency":
@@ -218,7 +222,7 @@ def parse_all_logs(dirname, target_reward):
 	descriptors = {'desc': []}
 	for file in os.listdir(dirname):
 		desc, target, eig_vals, df_no_diffs, df_diffs = parse_log_file(dirname + file, qps, dvfs, target_reward)
-		print(desc, target, eig_vals)
+		print(target)
 		descriptors['desc'].append(desc)
 		if (len(targets.keys()) == 0) or (len(eigenvals.keys()) == 0):
 			targets = {key: [] for key in target.keys()}
@@ -230,7 +234,7 @@ def parse_all_logs(dirname, target_reward):
 #		break
 	target_eig = {**descriptors, **targets, **eigenvals}
 	df = pd.DataFrame.from_dict(target_eig).set_index('desc')
-	outfile = '../new_' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
+	outfile = '../new_eigenval_dfs/' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
 	df.to_csv(outfile)
 	return df, df_no_diffs, df_diffs
 
