@@ -145,6 +145,7 @@ def prep_df(fname, qps, dvfs):
 			print('new joules diff: ', tmp.loc[i]['joules_diff'])
 	df_diffs = tmp.copy()	
 
+	# comment this out if you want to consider negative diffs
 	df_diffs = df_diffs[(df_diffs['joules_diff'] >= 0) & (df_diffs['instructions_diff'] >= 0) & (df_diffs['cycles_diff'] >= 0) & (df_diffs['ref_cycles_diff'] >= 0) & (df_diffs['llc_miss_diff'] >= 0)]
 
 	# slow for loop for diffs
