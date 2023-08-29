@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 # output: dataframe indexed by log ID with latency or total joules count, and correlation matrix eigenvalues
 
 TIME_CONVERSION_khz = 1./(2899999*1000)
-JOULE_CONVERSION = 0.00001526
+#JOULE_CONVERSION = 0.00001526
+JOULE_CONVERSION = 0.000061
 
 EBBRT_COLS = ['i',
 	'rx_desc',
@@ -95,7 +96,7 @@ def plot_histogram(df_diffs):
 # for every log file, log must be cleaned
 def prep_df(fname, qps, dvfs):
 #	fname = 'linux_mcd_dmesg_0_0xd00_135_200k/linux.mcd.dmesg.0_6_10_0xd00_135_200000'
-	print(fname)
+#	print(fname)
 
 	# rdtsc files not tagged by core number
 	tag = fname.split('.')[-1].split('_')
@@ -125,27 +126,32 @@ def prep_df(fname, qps, dvfs):
 	# continuous counter metrics: joules, inst, cycles, etc.
 	df_diffs = df[['instructions', 'cycles', 'ref_cycles', 'llc_miss', 'joules', 'timestamp']].copy()
 	df_diffs.columns = [f'{c}_diff' for c in df_diffs.columns]
+
+	# NOTE this should never be needed
 	df_diffs = df_diffs[(df_diffs['joules_diff']>0) & (df_diffs['instructions_diff'] > 0) & (df_diffs['cycles_diff'] > 0) & (df_diffs['ref_cycles_diff'] > 0) & (df_diffs['llc_miss_diff'] > 0)].copy()
 
 	# computing diffs
-#	df_diffs = df_diffs.diff()
 	tmp = df_diffs.diff().copy()
 	df_diffs_neg = tmp[(tmp['joules_diff'] < 0) | (tmp['instructions_diff'] < 0) | (tmp['cycles_diff'] < 0) | (tmp['ref_cycles_diff'] < 0) | (tmp['llc_miss_diff'] < 0)]
 	if df_diffs_neg.shape[0] > 0:
 		print('NEGATIVE DIFFS IN FILE ', fname)
-		print(df_diffs_neg)
 		for i,j in df_diffs_neg.iterrows():
 			prev = df_diffs.shift(1).loc[i]
 			cur = df_diffs.loc[i]
-			print('previous row: ', list(prev))
-			print('current row: ', list(cur))
+			print('NEGATIVE JOULES DIFFS AT ', i)
 			if (tmp.loc[i]['joules_diff'] < 0) & (tmp.loc[i]['timestamp_diff'] >= 0.001):
-				print('NEGATIVE JOULES DIFFS AT ', i)
-				tmp.loc[i, ['joules_diff']] = (2**32 - 1) * JOULE_CONVERSION - prev + cur 
+				tmp.loc[i, ['joules_diff']] = (2**32 - 1) * JOULE_CONVERSION - prev['joules_diff'] + cur['joules_diff'] 
+			else:
+				print(df_diffs_neg)
+				print('previous row: ', list(prev))
+				print('current row: ', list(cur))
+				print('modified diff: ', (2**32 - 1) * JOULE_CONVERSION - prev['joules_diff'] + cur['joules_diff'] )
 			print('new joules diff: ', tmp.loc[i]['joules_diff'])
 	df_diffs = tmp.copy()	
 
-	# comment this out if you want to consider negative diffs
+	# skip computation on tmp dataframe above to ignore overflows
+	# otherwise, skip the following line
+#	df_diffs = df_diffs.diff()
 	df_diffs = df_diffs[(df_diffs['joules_diff'] >= 0) & (df_diffs['instructions_diff'] >= 0) & (df_diffs['cycles_diff'] >= 0) & (df_diffs['ref_cycles_diff'] >= 0) & (df_diffs['llc_miss_diff'] >= 0)]
 
 	# slow for loop for diffs
@@ -190,7 +196,7 @@ def parse_log_file(fname, qps, dvfs, target):
 	# SCHEME 1
 	df_no_diffs, df_diffs = prep_df(fname, qps, dvfs)
 
-	plot_histogram(df_diffs)
+#	plot_histogram(df_diffs)
 
 	# SCHEME 2
 #	df = prep_df(fname, qps, dvfs)
@@ -243,8 +249,8 @@ def parse_all_logs(dirname, target_reward):
 #		break
 	target_eig = {**descriptors, **targets, **eigenvals}
 	df = pd.DataFrame.from_dict(target_eig).set_index('desc')
-	outfile = '../new_eigenval_dfs/' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
-	df.to_csv(outfile)
+#	outfile = '../ignore_overflow_new_eigenval_dfs/ignore_overflow_' + target_reward + '_eig_' + dvfs + '_' + qps + '.csv'
+#	df.to_csv(outfile)
 	return df, df_no_diffs, df_diffs
 
 
