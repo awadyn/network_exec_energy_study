@@ -1,0 +1,13 @@
+b'#type       avg     std     min     5th    10th    50th    90th    95th    99th
+read       52.1     7.1    37.4    43.8    45.5    50.5    61.2    65.9    78.1
+update     55.8     7.5    41.1    46.6    48.1    54.1    65.8    71.1    81.4
+op_q        1.0     0.0     1.0     1.0     1.0     1.1     1.1     1.1     1.1
+
+Total QPS = 200059.4 (4001189 / 20.0s)
+
+Misses = 0 (0.0%)
+Retransmitted TXs = 0
+Skipped TXs = 0 (0.0%)
+
+RX  688882096 bytes :   32.8 MB/s
+TX 429654612598689 bytes : 20487527.5 MB/s'
