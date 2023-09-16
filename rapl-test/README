@@ -1,0 +1,5 @@
+Some code to test reading RAPL registers.
+-----------------------------------------
+
+dmsr.sh
+--> to test RAPL energy status register overflow at (2**32 - 1) 
