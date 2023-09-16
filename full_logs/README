@@ -1,0 +1,14 @@
+Parsing and Analyzing Low-Level Execution Signals 
+in Reference to Overall System Performance and Energy Consumption
+-----------------------------------------------------------------
+X_qps/...
+	--> per-QPS directories of per-core log data
+X_Y_counters_merged/
+	--> per-QPS and per-DVFS directories of merged per-core logs for different explored ITR-delay values
+	--> the data in these logs represents counter-based metrics read at a millisecond-scale interval
+		--> a correct representation of this data is that of diffs between different counter readings
+X_Y_non_counters_merged/
+	--> per-QPS and per-DVFS directories of merged per-core logs for different explored ITR-delay values
+	--> the data in these logs represents non_counter-based metrics read at a microsecond-scale interval
+
+
