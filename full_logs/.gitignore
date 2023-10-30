@@ -1,8 +1,4 @@
-200k_qps/
-400k_qps/
-600k_qps/
+/*
 
-linux_mcd.csv
-mcd_combined.csv
-
-
+!/.gitignore
+!/mcd_0_rapl_135/
